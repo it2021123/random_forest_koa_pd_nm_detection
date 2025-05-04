@@ -26,24 +26,37 @@ def calculate_similarity(left_vals, right_vals):
         'std': np.nanstd(diffs)
     }
 
+# Συνάρτηση για τον υπολογισμό της κατακόρυφης μετατόπισης (διαφορά y)
+def calculate_vertical_displacement(prev_point, current_point):
+    return current_point[1] - prev_point[1]
+
+# Συνάρτηση επεξεργασίας ενός παραθύρου δεδομένων
 def process_window(window, window_num, nm):
-    """Process a single time window of gait data"""
     features = {}
-    columns = ['ID', 'Disease', 'Side'] if nm == 'nm' else ['ID', 'Disease', 'Side', 'Level']
-    # Preserve metadata
-    for col in  columns:
+    columns = ['ID', 'Disease', 'Side'] if (nm == 'nm' or nm =='pd')  else ['ID', 'Disease', 'Side', 'Level']
+    
+    # Keep metadata
+    for col in columns:
         if col in window.columns:
             features[col] = window[col].iloc[0]
     
     features['Window'] = window_num
     
-    # Initialize containers for bilateral comparisons
+    # Initialize lists for angles and displacements
     left_hip, right_hip = [], []
     left_knee, right_knee = [], []
     left_ankle, right_ankle = [], []
     left_heel, right_heel = [], []
     step_lengths = []
     
+    # For vertical displacements
+    left_hip_displacements, right_hip_displacements = [], []
+    left_knee_displacements, right_knee_displacements = [], []
+    
+    # Previous points for vertical displacements
+    prev_left_hip, prev_right_hip = None, None
+    prev_left_knee, prev_right_knee = None, None
+
     for _, row in window.iterrows():
         # Process left side
         left_hip.append(calculate_angle(
@@ -56,11 +69,24 @@ def process_window(window, window_num, nm):
             [row['LEFT_KNEE_x'], row['LEFT_KNEE_y']],
             [row['LEFT_ANKLE_x'], row['LEFT_ANKLE_y']]
         ))
+        
+        # Calculate vertical displacement for left hip and knee
+        if prev_left_hip is not None:
+            left_hip_displacements.append(calculate_vertical_displacement(
+                prev_left_hip, [row['LEFT_HIP_x'], row['LEFT_HIP_y']]))
+        if prev_left_knee is not None:
+            left_knee_displacements.append(calculate_vertical_displacement(
+                prev_left_knee, [row['LEFT_KNEE_x'], row['LEFT_KNEE_y']]))
+        
         left_ankle.append(degrees(atan2(
             row['LEFT_ANKLE_x'] - row['LEFT_KNEE_x'],
             row['LEFT_ANKLE_y'] - row['LEFT_KNEE_y']
         )))
         left_heel.append(row['LEFT_ANKLE_y'])
+        
+        # Update previous positions for left side
+        prev_left_hip = [row['LEFT_HIP_x'], row['LEFT_HIP_y']]
+        prev_left_knee = [row['LEFT_KNEE_x'], row['LEFT_KNEE_y']]
         
         # Process right side
         right_hip.append(calculate_angle(
@@ -73,13 +99,26 @@ def process_window(window, window_num, nm):
             [row['RIGHT_KNEE_x'], row['RIGHT_KNEE_y']],
             [row['RIGHT_ANKLE_x'], row['RIGHT_ANKLE_y']]
         ))
+        
+        # Calculate vertical displacement for right hip and knee
+        if prev_right_hip is not None:
+            right_hip_displacements.append(calculate_vertical_displacement(
+                prev_right_hip, [row['RIGHT_HIP_x'], row['RIGHT_HIP_y']]))
+        if prev_right_knee is not None:
+            right_knee_displacements.append(calculate_vertical_displacement(
+                prev_right_knee, [row['RIGHT_KNEE_x'], row['RIGHT_KNEE_y']]))
+        
         right_ankle.append(degrees(atan2(
             row['RIGHT_ANKLE_x'] - row['RIGHT_KNEE_x'],
             row['RIGHT_ANKLE_y'] - row['RIGHT_KNEE_y']
         )))
         right_heel.append(row['RIGHT_ANKLE_y'])
         
-        # Calculate step length (when both feet are on ground)
+        # Update previous positions for right side
+        prev_right_hip = [row['RIGHT_HIP_x'], row['RIGHT_HIP_y']]
+        prev_right_knee = [row['RIGHT_KNEE_x'], row['RIGHT_KNEE_y']]
+        
+        # Calculate step length
         step_lengths.append(abs(row['LEFT_ANKLE_x'] - row['RIGHT_ANKLE_x']))
     
     # Calculate bilateral similarities
@@ -119,7 +158,20 @@ def process_window(window, window_num, nm):
         features[f'{side}_Ankle_Std'] = np.nanstd(ankle)
         
         features[f'{side}_Heel_Max'] = np.nanmax(heel)
-        features[f'{side}_Heel_Min'] = np.nanmin(heel)
+    
+    # Add vertical displacement statistics
+    for side, hip_disp, knee_disp in zip(
+        ['Left', 'Right'],
+        [left_hip_displacements, right_hip_displacements],
+        [left_knee_displacements, right_knee_displacements]
+    ):
+        features[f'{side}_Hip_Vertical_Mean'] = np.nanmean(hip_disp) if hip_disp else np.nan
+        features[f'{side}_Hip_Vertical_Max'] = np.nanmax(hip_disp) if hip_disp else np.nan
+        features[f'{side}_Hip_Vertical_Std'] = np.nanstd(hip_disp) if hip_disp else np.nan
+        
+        features[f'{side}_Knee_Vertical_Mean'] = np.nanmean(knee_disp) if knee_disp else np.nan
+        features[f'{side}_Knee_Vertical_Max'] = np.nanmax(knee_disp) if knee_disp else np.nan
+        features[f'{side}_Knee_Vertical_Std'] = np.nanstd(knee_disp) if knee_disp else np.nan
     
     return features
 
@@ -158,36 +210,36 @@ def process_group(input_path, output_path, pattern ,nm):
 groups = [
     {
         'name': 'NM',
-        'input': '/home/poulimenos/output/NM/',
-        'output': '/home/poulimenos/nm_features2.csv',
+        'input': '/home/poulimenos/project/rand_forest2/output/NM/',
+        'output': '/home/poulimenos/project/rand_forest2/nm_features3.csv',
         'pattern': r"(\d{3})_(\w+)_(\d{2})",
         'nm':'nm'
     },
     {
         'name': 'KOA_EL',
-        'input': '/home/poulimenos/output/KOA/KOA_EL',
-        'output': '/home/poulimenos/koa_El_features2.csv',
+        'input': '/home/poulimenos/project/rand_forest2/output/KOA/KOA_EL',
+        'output': '/home/poulimenos/project/rand_forest2/koa_El_features3.csv',
         'pattern': r"(\d{3})_(\w+)_(\d{2})_(\w+)",
         'nm':'koa'
     },
     {
         'name': 'KOA_MD',
-        'input': '/home/poulimenos/output/KOA/KOA_MD',
-        'output': '/home/poulimenos/koa_MD_features2.csv',
+        'input': '/home/poulimenos/project/rand_forest2/output/KOA/KOA_MD',
+        'output': '/home/poulimenos/project/rand_forest2/koa_MD_features3.csv',
         'pattern': r"(\d{3})_(\w+)_(\d{2})_(\w+)",
         'nm':'koa'
     },
     {
         'name': 'KOA_SV',
-        'input': '/home/poulimenos/output/KOA/KOA_SV',
-        'output': '/home/poulimenos/koa_SV_features2.csv',
+        'input': '/home/poulimenos/project/rand_forest2/output/KOA/KOA_SV',
+        'output': '/home/poulimenos/project/rand_forest2/koa_SV_features3.csv',
         'pattern': r"(\d{3})_(\w+)_(\d{2})_(\w+)",
         'nm':'koa'
     },
     {
         'name': 'PD',
-        'input': '/home/poulimenos/output/PD/',
-        'output': '/home/poulimenos//pd_features2.csv',
+        'input': '/home/poulimenos/project/rand_forest2/output/PD/',
+        'output': '/home/poulimenos/project/rand_forest2/pd_features3.csv',
         'pattern': r"(\d{3})_(\w+)_(\d{2})_(\w+)",
         'nm':'pd'
         

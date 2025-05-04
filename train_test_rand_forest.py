@@ -43,10 +43,6 @@ df = convert_commas_to_periods(df)
 
 df['Disease_Level'] = df['Disease'] + "_" + df['Level'].astype(str)
     
-print(df['Disease'])
-print(df['Disease_Level'])
-
-
 # === Label Encoding ===
 le_disease = LabelEncoder()
 le_disease_level = LabelEncoder()
